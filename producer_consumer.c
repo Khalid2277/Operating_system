@@ -125,37 +125,7 @@ void insert_item(item next_produced) {
     sem_wait(&mutex);  // enter critical section
     
     /* Critical Section - Add next_produced to the buffer */
-    // Bonus: Simple priority handling
-    // If urgent and buffer not empty, check if we can insert before normal items
-    if (next_produced.priority == 1 && in != out) {
-        // Look backwards from insertion point for normal priority items
-        int check_pos = (in - 1 + buffer_size) % buffer_size;
-        int shift_count = 0;
-        
-        // Count consecutive normal items at the tail
-        while (check_pos != out && buffer[check_pos].priority == 0 && shift_count < buffer_size) {
-            shift_count++;
-            check_pos = (check_pos - 1 + buffer_size) % buffer_size;
-        }
-        
-        // Shift normal items forward to make room for urgent item
-        if (shift_count > 0) {
-            for (int i = 0; i < shift_count; i++) {
-                int from_idx = (in - shift_count + i + buffer_size) % buffer_size;
-                int to_idx = (from_idx + 1) % buffer_size;
-                buffer[to_idx] = buffer[from_idx];
-            }
-            // Insert urgent item at the correct position
-            int insert_pos = (in - shift_count + buffer_size) % buffer_size;
-            buffer[insert_pos] = next_produced;
-        } else {
-            buffer[in] = next_produced;
-        }
-    } else {
-        // Normal priority or empty buffer - insert at in position
-        buffer[in] = next_produced;
-    }
-    
+    buffer[in] = next_produced;
     in = (in + 1) % buffer_size;  // move tail forward (circular)
     
     sem_post(&mutex);  // exit critical section
@@ -164,14 +134,46 @@ void insert_item(item next_produced) {
 
 /**
  * Remove item from buffer
+ * Bonus: Priority handling - urgent items are consumed first
  */
 item remove_item(void) {
     sem_wait(&full);   // wait for full slot
     sem_wait(&mutex);  // enter critical section
     
     /* Critical Section - Remove item from buffer */
-    item next_consumed = buffer[out];
-    out = (out + 1) % buffer_size;  // circular increment
+    // Bonus: Scan buffer for urgent items first
+    int urgent_pos = -1;
+    int count = 0;
+    int pos = out;
+    
+    // Count items in buffer and find first urgent item
+    while (pos != in) {
+        if (buffer[pos].priority == 1 && urgent_pos == -1) {
+            urgent_pos = pos;  // Found first urgent item
+        }
+        count++;
+        pos = (pos + 1) % buffer_size;
+    }
+    
+    item next_consumed;
+    
+    if (urgent_pos != -1) {
+        // Urgent item found - remove it and shift items
+        next_consumed = buffer[urgent_pos];
+        
+        // Shift items to fill the gap
+        int current = urgent_pos;
+        while (current != out) {
+            int prev = (current - 1 + buffer_size) % buffer_size;
+            buffer[current] = buffer[prev];
+            current = prev;
+        }
+        out = (out + 1) % buffer_size;
+    } else {
+        // No urgent items - normal FIFO
+        next_consumed = buffer[out];
+        out = (out + 1) % buffer_size;
+    }
     
     sem_post(&mutex);  // exit critical section
     sem_post(&empty);  // signal empty slot
