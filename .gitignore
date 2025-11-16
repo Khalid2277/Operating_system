@@ -1,0 +1,25 @@
+# C/C++ compiled files
+*.o
+*.out
+*.exe
+producer_consumer
+
+# LaTeX auxiliary files
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.fdb_latexmk
+*.fls
+
+# macOS files
+.DS_Store
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
