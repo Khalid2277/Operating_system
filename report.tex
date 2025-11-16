@@ -31,14 +31,11 @@
 
 \title{\textbf{Multithreaded Producer-Consumer Application\\with Priority Handling and Performance Metrics}}
 \author{
-    % Add your group member names here
-    [Student Name 1] \\
-    [Student Name 2] \\
-    [Student Name 3] \\
-    [Student Name 4] \\
+    Khalid Alfahim - b00100122 \\
+    Ahmad Mustafawi - b00094873\\
     \\
-    \textit{Operating Systems Course} \\
-    \textit{[Your Institution]}
+    \textit{Operating Systems - CMP 310} \\
+    \textit{American University of Sharjah}
 }
 \date{November 16, 2025}
 
@@ -50,19 +47,19 @@
 
 \subsection{Synchronization Strategy}
 
-Our implementation employs a two-level synchronization mechanism combining semaphores and mutexes to ensure thread safety and prevent race conditions.
+Our implementation uses semaphores and mutexes to ensure thread-safe access to the shared buffer and prevent race conditions.
 
-\textbf{Semaphores for State Management:} We utilize two semaphores (\texttt{empty} and \texttt{full}) to manage buffer occupancy. The \texttt{empty} semaphore, initialized to the buffer size, tracks available slots and blocks producers when the buffer is full. Conversely, the \texttt{full} semaphore, initialized to zero, tracks occupied slots and blocks consumers when the buffer is empty. This approach eliminates busy-waiting, allowing threads to block efficiently on semaphore operations.
+\textbf{Semaphores for Buffer Management:} We use three semaphores for synchronization. The \texttt{mutex} semaphore (initialized to 1) provides mutual exclusion for critical sections. The \texttt{empty} semaphore (initialized to buffer size) tracks available slots and blocks producers when the buffer is full. The \texttt{full} semaphore (initialized to 0) tracks occupied slots and blocks consumers when the buffer is empty. This approach eliminates busy-waiting, as threads block efficiently on semaphore operations.
 
-\textbf{Mutex for Critical Section Protection:} A mutex (\texttt{mutex}) protects the buffer during insertion and removal operations, ensuring mutual exclusion when modifying shared state (head, tail, and count indices). An additional \texttt{stats\_mutex} protects shared statistics counters. This separation prevents contention between buffer operations and statistics updates.
+\textbf{Critical Section Protection:} The \texttt{mutex} semaphore protects the buffer during insertion and removal operations, ensuring only one thread modifies the buffer at a time. A separate \texttt{stats\_lock} mutex protects shared statistics counters to prevent race conditions during metric updates.
 
-\textbf{Rationale:} Semaphores provide efficient signaling for buffer fullness/emptiness, while mutexes ensure atomic buffer manipulation. This combination prevents both overflow/underflow conditions and data corruption without resorting to inefficient polling or sleep-based approaches.
+\textbf{Rationale:} This synchronization strategy prevents overflow/underflow conditions, data corruption, and race conditions without busy-waiting or inefficient polling mechanisms.
 
 \subsection{Circular Buffer Implementation}
 
-The buffer uses a dynamically allocated array with head and tail indices that wrap around using modulo arithmetic: \texttt{(index + 1) \% size}. A separate count field distinguishes between full and empty states, avoiding ambiguity when head equals tail.
+The buffer uses a dynamically allocated array with \texttt{in} and \texttt{out} indices that wrap around using modulo arithmetic: \texttt{(index + 1) \% buffer\_size}. The \texttt{in} index points to where the next item will be inserted (producer), and \texttt{out} points to where the next item will be removed (consumer).
 
-\textbf{Rationale:} Circular buffers maximize memory efficiency by reusing array slots. The modulo operation handles wrapping automatically, and maintaining an explicit count simplifies full/empty detection without additional state variables.
+\textbf{Rationale:} Circular buffers maximize memory efficiency by reusing array slots. The modulo operation handles wrapping automatically, enabling continuous operation without memory reallocation.
 
 \subsection{Priority Handling (Bonus Feature)}
 
@@ -86,27 +83,30 @@ Each item records an enqueue timestamp using \texttt{gettimeofday()} when produc
 
 \subsection{Challenge 1: Priority Queue in Circular Buffer}
 
-\textbf{Problem:} Implementing priority handling in a circular buffer is non-trivial because standard circular buffers assume strict FIFO ordering. We needed to maintain FIFO within each priority level while allowing urgent items to bypass normal items.
+\textbf{Problem:} Implementing priority handling in a circular buffer is challenging because standard circular buffers follow strict FIFO ordering. We needed to maintain FIFO within each priority level while allowing urgent items to bypass normal items.
 
-\textbf{Solution:} We developed a shifting algorithm that identifies normal priority items at the tail end and shifts them one position to make room for urgent items. This preserves FIFO within priorities while allowing urgent items to "jump ahead."
+\textbf{Solution:} We developed a shifting algorithm that scans backward from the insertion point to identify consecutive normal priority items at the tail. These items are shifted forward one position, creating space to insert the urgent item ahead of them. This preserves FIFO within priorities while allowing urgent items to "jump ahead."
 
 \begin{lstlisting}[caption={Priority Insertion Logic}, captionpos=b]
-// Find normal items at tail
-for (int i = 0; i < buffer.count; i++) {
-    int idx = (buffer.head + buffer.count - 1 - i 
-               + buffer.size) % buffer.size;
-    if (buffer.items[idx].priority == PRIORITY_NORMAL)
-        items_to_shift++;
-    else break;
+// Count consecutive normal items at tail
+int check_pos = (in - 1 + buffer_size) % buffer_size;
+int shift_count = 0;
+
+while (check_pos != out && 
+       buffer[check_pos].priority == 0 && 
+       shift_count < buffer_size) {
+    shift_count++;
+    check_pos = (check_pos - 1 + buffer_size) % buffer_size;
 }
-// Shift items and insert urgent item
+
+// Shift normal items forward and insert urgent item
 \end{lstlisting}
 
 \subsection{Challenge 2: Race Conditions in Statistics}
 
-\textbf{Problem:} Multiple threads concurrently updating shared counters (\texttt{total\_items\_produced}, \texttt{total\_items\_consumed}, \texttt{latency\_count}) could cause race conditions and incorrect counts.
+\textbf{Problem:} Multiple threads concurrently updating shared counters (\texttt{total\_produced}, \texttt{total\_consumed}, \texttt{total\_latency}) could cause race conditions and incorrect counts.
 
-\textbf{Solution:} We introduced a separate \texttt{stats\_mutex} specifically for protecting statistics updates. This prevents contention with the main buffer mutex and allows statistics updates to occur independently.
+\textbf{Solution:} We introduced a separate \texttt{stats\_lock} mutex specifically for protecting statistics updates. This prevents contention with the main buffer semaphore and allows statistics updates to occur independently.
 
 \subsection{Challenge 3: Thread-Safe Random Number Generation}
 
@@ -157,15 +157,27 @@ The application was rigorously tested with various configurations:
 \section{Individual Contributions}
 
 \begin{itemize}[leftmargin=*, itemsep=2pt]
-    \item \textbf{[Member 1]}: Implemented circular buffer structure and core semaphore/mutex synchronization mechanisms (30\%)
-    \item \textbf{[Member 2]}: Developed producer and consumer thread functions, implemented poison pill termination technique (30\%)
-    \item \textbf{[Member 3]}: Implemented priority handling bonus feature with shifting algorithm (20\%)
-    \item \textbf{[Member 4]}: Added performance metrics tracking, conducted testing, and wrote comprehensive documentation (20\%)
+    \item \textbf{[Khalid Alfahim]}: Implemented circular buffer structure and core semaphore/mutex synchronization mechanisms (30\%)
+    \item \textbf{[Khalid Alfahim - Ahmad Mustafawi]}: Developed producer and consumer thread functions, implemented poison pill termination technique (30\%)
+    \item \textbf{[Ahmad Mustafawi]}: Implemented priority handling bonus feature with shifting algorithm (20\%)
+    \item \textbf{[Khalid Alfahim - Ahmad Mustafawi]}: Added performance metrics tracking, conducted testing, and wrote comprehensive documentation (20\%)
 \end{itemize}
 
 \section{Conclusion}
 
-This project successfully demonstrates multithreaded programming with proper synchronization using POSIX semaphores and mutexes. The implementation correctly handles concurrent access, provides graceful termination via the poison pill technique, and includes advanced features (priority handling and performance metrics) while maintaining code clarity and robustness. Key achievements include: correct circular buffer implementation, proper synchronization without busy-waiting, priority queue functionality, comprehensive performance metrics, and robust error handling. The application meets all core requirements plus both bonus features, achieving 110\% of the base requirements.
+This project successfully demonstrates multithreaded programming with proper synchronization using POSIX semaphores and mutexes. The implementation correctly handles concurrent access to a shared circular buffer, provides graceful termination via the poison pill technique, and includes bonus features (priority handling and performance metrics) while maintaining code clarity and correctness.
+
+Key achievements include:
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+    \item Correct circular buffer implementation with \texttt{in}/\texttt{out} indexing
+    \item Proper synchronization using semaphores (\texttt{mutex}, \texttt{empty}, \texttt{full})
+    \item No busy-waiting, deadlocks, or race conditions
+    \item Priority queue functionality maintaining FIFO within priority levels
+    \item Comprehensive performance metrics (latency and throughput tracking)
+    \item Robust error handling and memory management
+\end{itemize}
+
+The application meets all core requirements and successfully implements both bonus features, achieving 110\% of the base requirements.
 
 \end{document}
 
