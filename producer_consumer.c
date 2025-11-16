@@ -134,13 +134,50 @@ void insert_item(item next_produced) {
 
 /**
  * Remove item from buffer
+ * Bonus: Priority handling - urgent items consumed before normal items
  */
 item remove_item(void) {
     sem_wait(&full);   // wait for full slot
     sem_wait(&mutex);  // enter critical section
     
     /* Critical Section - Remove item from buffer */
-    item next_consumed = buffer[out];
+    // Bonus: Priority handling via linear scan and extraction
+    int best_pos = out;  // Start with FIFO position
+    int best_priority = buffer[out].priority;
+    
+    // Count items in buffer for safe iteration
+    int count = 0;
+    int temp_pos = out;
+    while (temp_pos != in && count < buffer_size) {
+        count++;
+        temp_pos = (temp_pos + 1) % buffer_size;
+    }
+    
+    // Scan all items in buffer looking for highest priority (urgent = 1)
+    int current_pos = out;
+    for (int i = 0; i < count; i++) {
+        if (buffer[current_pos].priority > best_priority) {
+            best_priority = buffer[current_pos].priority;
+            best_pos = current_pos;
+        }
+        current_pos = (current_pos + 1) % buffer_size;
+    }
+    
+    // Extract the best item (save it)
+    item next_consumed = buffer[best_pos];
+    
+    // If we're not taking from front, shift items forward to fill the gap
+    if (best_pos != out) {
+        int shift_pos = best_pos;
+        // Shift items from out up to best_pos forward by one position
+        while (shift_pos != out) {
+            int prev_pos = (shift_pos - 1 + buffer_size) % buffer_size;
+            buffer[shift_pos] = buffer[prev_pos];
+            shift_pos = prev_pos;
+        }
+    }
+    
+    // Move out pointer forward (item removed from front)
     out = (out + 1) % buffer_size;
     
     sem_post(&mutex);  // exit critical section
@@ -218,7 +255,7 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < num_consumers; i++) {
         item poison;
         poison.value = POISON_PILL;
-        poison.priority = 1;  // urgent priority
+        poison.priority = -1;  // LOWEST priority - consumed AFTER all real items
         gettimeofday(&poison.timestamp, NULL);
         insert_item(poison);
     }
